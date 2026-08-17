@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SARWAR-MD Session Generator</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+  }
+  .card {
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 420px;
+    width: 100%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  h1 { font-size: 22px; text-align: center; margin-bottom: 4px; }
+  .sub { text-align: center; color: #b8b8d1; font-size: 13px; margin-bottom: 24px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab {
+    flex: 1; padding: 10px; text-align: center; border-radius: 8px;
+    background: rgba(255,255,255,0.08); cursor: pointer; font-size: 14px;
+  }
+  .tab.active { background: #6c5ce7; }
+  input {
+    width: 100%; padding: 12px; border-radius: 8px; border: none;
+    margin-bottom: 12px; font-size: 15px; box-sizing: border-box;
+  }
+  button {
+    width: 100%; padding: 12px; border-radius: 8px; border: none;
+    background: #6c5ce7; color: #fff; font-size: 15px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .result {
+    margin-top: 20px; padding: 16px; border-radius: 8px;
+    background: rgba(0,0,0,0.25); font-size: 14px; word-break: break-word;
+    display: none;
+  }
+  .result.show { display: block; }
+  .code-display {
+    font-size: 24px; font-weight: bold; text-align: center;
+    letter-spacing: 2px; margin: 10px 0; color: #00e6a3;
+  }
+  img.qr { width: 100%; border-radius: 8px; margin-top: 10px; }
+  .note { font-size: 12px; color: #b8b8d1; margin-top: 16px; line-height: 1.5; }
+  .error { color: #ff6b6b; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>SARWAR-MD Session Generator</h1>
+  <div class="sub">Deployed on Vercel</div>
+
+  <div class="tabs">
+    <div class="tab active" id="tabPair" onclick="switchTab('pair')">Pairing Code</div>
+    <div class="tab" id="tabQr" onclick="switchTab('qr')">QR Code</div>
+  </div>
+
+  <div id="pairPanel">
+    <input type="text" id="numberInput" placeholder="Phone number with country code (e.g. 923001234567)">
+    <button id="pairBtn" onclick="startPair()">Get Pairing Code</button>
+    <div class="note">
+      This request stays open until you enter the code on your phone (up to ~45s),
+      then your session is generated and sent to your WhatsApp automatically.
+      Have your phone ready before you tap the button.
+    </div>
+  </div>
+
+  <div id="qrPanel" style="display:none;">
+    <button id="qrBtn" onclick="startQr()">Generate QR Code</button>
+    <div class="note">
+      ⚠️ QR mode is best-effort on Vercel and may not always work reliably —
+      use Pairing Code above if this fails.
+    </div>
+  </div>
+
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+function switchTab(tab) {
+  document.getElementById('tabPair').classList.toggle('active', tab === 'pair');
+  document.getElementById('tabQr').classList.toggle('active', tab === 'qr');
+  document.getElementById('pairPanel').style.display = tab === 'pair' ? 'block' : 'none';
+  document.getElementById('qrPanel').style.display = tab === 'qr' ? 'block' : 'none';
+  document.getElementById('result').classList.remove('show');
+}
+
+async function startPair() {
+  const number = document.getElementById('numberInput').value.trim();
+  const btn = document.getElementById('pairBtn');
+  const result = document.getElementById('result');
+  if (!number) { alert('Enter a phone number'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Requesting code...';
+  result.classList.add('show');
+  result.innerHTML = 'Waiting for pairing... enter the code on your phone as soon as it appears below.';
+
+  try {
+    const res = await fetch('/api/pair?number=' + encodeURIComponent(number));
+    const data = await res.json();
+    if (data.success) {
+      result.innerHTML = '<div class="code-display">' + (data.code || '—') + '</div>' +
+        '<div>' + data.message + '</div>';
+    } else {
+      result.innerHTML = '<div class="error">' + (data.error || 'Failed') + '</div>';
+    }
+  } catch (e) {
+    result.innerHTML = '<div class="error">Request failed: ' + e.message + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Get Pairing Code';
+  }
+}
+
+async function startQr() {
+  const btn = document.getElementById('qrBtn');
+  const result = document.getElementById('result');
+  btn.disabled = true;
+  btn.textContent = 'Generating QR...';
+  result.classList.add('show');
+  result.innerHTML = 'Generating QR code...';
+
+  try {
+    const res = await fetch('/api/qr-start');
+    const data = await res.json();
+    if (data.success) {
+      result.innerHTML = '<img class="qr" src="' + data.qr + '">' +
+        '<div style="margin-top:10px;">Scan with WhatsApp, then this page will check status...</div>';
+      pollQr(data.sessionId);
+    } else {
+      result.innerHTML = '<div class="error">' + (data.error || 'Failed') + '</div>';
+      btn.disabled = false;
+      btn.textContent = 'Generate QR Code';
+    }
+  } catch (e) {
+    result.innerHTML = '<div class="error">Request failed: ' + e.message + '</div>';
+    btn.disabled = false;
+    btn.textContent = 'Generate QR Code';
+  }
+}
+
+async function pollQr(sessionId) {
+  const result = document.getElementById('result');
+  const btn = document.getElementById('qrBtn');
+  let attempts = 0;
+  const maxAttempts = 20;
+
+  const interval = setInterval(async () => {
+    attempts++;
+    try {
+      const res = await fetch('/api/qr-status?id=' + sessionId);
+      const data = await res.json();
+      if (data.state === 'connected') {
+        clearInterval(interval);
+        result.innerHTML = '<div>✅ Paired!</div><div style="word-break:break-all;margin-top:8px;font-size:12px;">' + data.session + '</div>';
+        btn.disabled = false;
+        btn.textContent = 'Generate QR Code';
+      } else if (data.state === 'not_found' || data.state === 'expired' || data.state === 'closed') {
+        clearInterval(interval);
+        result.innerHTML = '<div class="error">' + data.message + '</div>';
+        btn.disabled = false;
+        btn.textContent = 'Generate QR Code';
+      }
+    } catch (e) {}
+
+    if (attempts >= maxAttempts) {
+      clearInterval(interval);
+      btn.disabled = false;
+      btn.textContent = 'Generate QR Code';
+    }
+  }, 3000);
+}
+</script>
+</body>
+</html>
