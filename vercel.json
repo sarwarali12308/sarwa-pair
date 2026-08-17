@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "api/pair.js": {
+      "maxDuration": 60
+    },
+    "api/qr-start.js": {
+      "maxDuration": 30
+    },
+    "api/qr-status.js": {
+      "maxDuration": 10
+    }
+  }
+}
